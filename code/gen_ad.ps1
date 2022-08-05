@@ -1,4 +1,7 @@
-param([Parameter(Mandatory=$true)] $JSONFile)
+param(
+    [Parameter(Mandatory=$true)] $JSONFile,
+    [switch]$Undo
+)
 
 function CreateADGroup(){
     param([Parameter(Mandatory=$true)] $groupObject)
@@ -43,25 +46,58 @@ function CreateADUser(){
             Write-Warning "User $name NOT added to group $group_name because it does not exist"
         }
     }
+    echo ($userObject.local_admin)
+    # Add to local admin as needed
+    if ( $userObject.local_admin -eq $True){
+        net localgroup administrators $Global:Domain\$username /add
+    }
+    
 }
 
+function RemoveADUser(){
+    param([Parameter(Mandatory=$true)] $userObject)
+
+    $name = $userObject.name
+    $firstname, $lastname = $name.Split(" ")
+    $username = ($firstname[0] + $lastname).ToLower()
+    $samAccountName = $username
+    Remove-ADUser -Identity $samAccountName -Confirm:$False
+}
 function WeakenPasswordPolicy(){
     secedit /export /cfg C:\Windows\Tasks\secpool.cfg
-    (Get-Content C:\Windows\Tasks\secpool.cfg).replace("PasswordComplexity = 1", "PasswordComplexity = 0") | Out-File C:\Windows\Tasks\secpol.cfg
+    (Get-Content C:\Windows\Tasks\secpool.cfg).replace("PasswordComplexity = 1", "PasswordComplexity = 0").replace("MinimumPasswordLength = 7", "MinimumPasswordLength = 1") | Out-File C:\Windows\Tasks\secpol.cfg
     secedit /configure /db c:\windows\security\local.sdb /cfg C:\Windows\Tasks\secpol.cfg /areas SECURITYPOLICY
     rm -force C:\Windows\Tasks\secpol.cfg -confirm:$false
 }
 
-WeakenPasswordPolicy
+function StrengthenPasswordPolicy(){
+    secedit /export /cfg C:\Windows\Tasks\secpool.cfg
+    (Get-Content C:\Windows\Tasks\secpool.cfg).replace("PasswordComplexity = 0", "PasswordComplexity = 1").replace("MinimumPasswordLength = 1", "MinimumPasswordLength = 7") | Out-File C:\Windows\Tasks\secpol.cfg
+    secedit /configure /db c:\windows\security\local.sdb /cfg C:\Windows\Tasks\secpol.cfg /areas SECURITYPOLICY
+    rm -force C:\Windows\Tasks\secpol.cfg -confirm:$false
+}
 
 $json = ( Get-Content $JSONFile | ConvertFrom-JSON)
-
 $Global:Domain = $json.domain
 
-foreach ( $group in $json.groups ){
-    CreateADGroup $group
+if ( -not $Undo) {
+    WeakenPasswordPolicy
+
+    foreach ( $group in $json.groups ){
+        CreateADGroup $group
+    }
+    
+    foreach ( $user in $json.users ){
+        CreateADUser $user
+    }
+}else{
+    StrengthenPasswordPolicy
+    
+    foreach ( $user in $json.users ){
+        RemoveADUser $user
+    }    
+    foreach ( $group in $json.groups ){
+        RemoveADGroup $group
+    }
 }
 
-foreach ( $user in $json.users ){
-    CreateADUser $user
-}
