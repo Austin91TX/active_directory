@@ -46,12 +46,12 @@ function CreateADUser(){
             Write-Warning "User $name NOT added to group $group_name because it does not exist"
         }
     }
-    echo ($userObject.local_admin)
+    #echo ($userObject.local_admin)
     # Add to local admin as needed
     if ( $userObject.local_admin -eq $True){
         net localgroup administrators $Global:Domain\$username /add
     }
-    
+
 }
 
 function RemoveADUser(){
